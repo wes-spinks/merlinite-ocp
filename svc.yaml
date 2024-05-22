@@ -1,0 +1,25 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: granite-20-svc
+  labels:
+    app: granite-20-lcpp-py
+    shard: internal
+spec:
+  clusterIP: None
+  ipFamilies:
+    - IPv4
+  ports:
+    - name: http
+      protocol: TCP
+      port: 8080
+      targetPort: http
+  internalTrafficPolicy: Cluster
+  clusterIPs:
+    - None
+  type: ClusterIP
+  ipFamilyPolicy: SingleStack
+  sessionAffinity: None
+  selector:
+    app: granite-20-lcpp-py
+
