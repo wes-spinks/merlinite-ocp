@@ -1,13 +1,15 @@
 kind: PersistentVolumeClaim
 apiVersion: v1
 metadata:
-  name: models
-  namespace: 
+  name: model20b
+  labels:
+    app: granite-20-lcpp-py
 spec:
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 19Gi
+      storage: 18Gi
   storageClassName: gp2
   volumeMode: Filesystem
+

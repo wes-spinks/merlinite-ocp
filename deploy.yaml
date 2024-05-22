@@ -1,115 +1,136 @@
-kind: Pod
-apiVersion: v1
+kind: Deployment
+apiVersion: apps/v1
 metadata:
-  namespace: cia-ocai
+  name: granite-20-lcpp-py
   labels:
-    app: hf-text-generation-inference-server
+    app: granite-20-lcpp-py
 spec:
-  restartPolicy: Always
-  serviceAccountName: default
-  enableServiceLinks: true
-  affinity: {}
-  terminationGracePeriodSeconds: 120
-  containers:
-    - resources:
-        limits:
-          cpu: '2'
-          memory: 8Gi
-          nvidia.com/gpu: '1'
-        requests:
-          cpu: '2'
-          memory: 8Gi
-          nvidia.com/gpu: '1'
-      readinessProbe:
-        httpGet:
-          path: /health
-          port: http
-          scheme: HTTP
-        timeoutSeconds: 55
-        periodSeconds: 30
-        successThreshold: 1
-        failureThreshold: 3
-      terminationMessagePath: /dev/termination-log
-      name: server
-      livenessProbe:
-        httpGet:
-          path: /health
-          port: http
-          scheme: HTTP
-        timeoutSeconds: 8
-        periodSeconds: 100
-        successThreshold: 1
-        failureThreshold: 3
-      env:
-        - name: MODEL_ID
-          value: ibm/merlinite-7b
-        - name: MAX_INPUT_LENGTH
-          value: '1024'
-        - name: MAX_TOTAL_TOKENS
-          value: '2048'
-        - name: HUGGINGFACE_HUB_CACHE
-          value: /models-cache
-        - name: QUANTIZE
-          value: bitsandbytes
-        - name: NUMBA_CACHE_DIR
-          value: /tmp
-        - name: REVISION
-          value: main
-        - name: PORT
-          value: '3000'
-        - name: HOST
-          value: 0.0.0.0
-      securityContext:
-        capabilities:
-          drop:
-            - ALL
-        runAsNonRoot: true
-        allowPrivilegeEscalation: false
-        seccompProfile:
-          type: RuntimeDefault
-      ports:
-        - name: http
-          containerPort: 3000
-          protocol: TCP
-      imagePullPolicy: IfNotPresent
-      startupProbe:
-        httpGet:
-          path: /health
-          port: http
-          scheme: HTTP
-        timeoutSeconds: 600
-        periodSeconds: 30
-        successThreshold: 1
-        failureThreshold: 24
-      volumeMounts:
-        - name: modelcache
-          mountPath: /models-cache
+  replicas: 1
+  selector:
+    matchLabels:
+      app: granite-20-lcpp-py
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: granite-20-lcpp-py
+    spec:
+      restartPolicy: Always
+      initContainers:
+        - name: model-download
+          image: 'quay.io/stewhite/llama-py:latest'
+          command:
+            - /bin/sh
+            - '-c'
+            - >
+              echo 'Starting download...';
+
+              wget -O /data/granite-20b-code-instruct.Q4_K_M.gguf
+              https://huggingface.co/ibm-granite/granite-20b-code-instruct-GGUF/resolve/main/granite-20b-code-instruct.Q4_K_M.gguf;
+
+              echo 'Downloaded model.'
+          resources: {}
+          volumeMounts:
+            - name: models
+              mountPath: /data
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          imagePullPolicy: Always
+      schedulerName: default-scheduler
+      affinity: {}
+      terminationGracePeriodSeconds: 120
+      securityContext: {}
+      containers:
+        - resources:
+            limits:
+              cpu: '2'
+              memory: 16Gi
+              nvidia.com/gpu: '1'
+            requests:
+              cpu: '1'
+              memory: 12Gi
+              nvidia.com/gpu: '1'
+          readinessProbe:
+            httpGet:
+              path: /docs
+              port: http
+              scheme: HTTP
+            timeoutSeconds: 5
+            periodSeconds: 30
+            successThreshold: 1
+            failureThreshold: 3
+          terminationMessagePath: /dev/termination-log
+          name: server
+          livenessProbe:
+            httpGet:
+              path: /docs
+              port: http
+              scheme: HTTP
+            timeoutSeconds: 8
+            periodSeconds: 100
+            successThreshold: 1
+            failureThreshold: 3
+          env:
+            - name: CUDA_VISIBLE_DEVICES
+              value: '0'
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: all
+            - name: MODEL_FOLDER
+              value: /data
+            - name: MODEL
+              value: granite-20b-code-instruct.Q4_K_M.gguf
+            - name: GPU_LAYERS
+              value: '55'
+            - name: PORT
+              value: '8080'
+            - name: HOSTNAME
+              value: 0.0.0.0
+          securityContext:
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            seccompProfile:
+              type: RuntimeDefault
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          imagePullPolicy: IfNotPresent
+          startupProbe:
+            httpGet:
+              path: /docs
+              port: http
+              scheme: HTTP
+            timeoutSeconds: 1
+            periodSeconds: 30
+            successThreshold: 1
+            failureThreshold: 24
+          volumeMounts:
+            - name: models
+              mountPath: /data
+            - name: shm
+              mountPath: /dev/shm
+          terminationMessagePolicy: File
+          image: 'quay.io/stewhite/llama-py:latest'
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: model20b
         - name: shm
-          mountPath: /dev/shm
-      terminationMessagePolicy: File
-      image: 'ghcr.io/huggingface/text-generation-inference:1.2.0'
-  serviceAccount: default
-  volumes:
-    - name: modelcache
-      persistentVolumeClaim:
-        claimName: modelcache
-    - name: shm
-      emptyDir:
-        medium: Memory
-        sizeLimit: 1Gi
-  dnsPolicy: ClusterFirst
-  tolerations:
-    - key: nvidia.com/gpu
-      operator: Exists
-      effect: PreferNoSchedule
-    - key: node.kubernetes.io/not-ready
-      operator: Exists
-      effect: NoExecute
-      tolerationSeconds: 300
-    - key: node.kubernetes.io/unreachable
-      operator: Exists
-      effect: NoExecute
-      tolerationSeconds: 300
-    - key: node.kubernetes.io/memory-pressure
-      operator: Exists
-      effect: NoSchedule
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Gi
+      dnsPolicy: ClusterFirst
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: PreferNoSchedule
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 25%
+      maxSurge: 1
+  revisionHistoryLimit: 10
+  progressDeadlineSeconds: 600
